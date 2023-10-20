@@ -158,6 +158,41 @@ dumpContext(const CONTEXT *pContext)
     }
     lprintf("\n\n");
 
+#elif defined(_M_ARM)
+    auto cflags = pContext->ContextFlags;
+    if (cflags & CONTEXT_ARM) {
+        lprintf("Flags=%08lx (CONTEXT_ARM", cflags);
+        cflags &= ~CONTEXT_ARM;
+        if (cflags & CONTEXT_CONTROL) { lprintf("|CONTROL"); cflags &= ~CONTEXT_CONTROL; }
+        if (cflags & CONTEXT_INTEGER) { lprintf("|INTEGER"); cflags &= ~CONTEXT_INTEGER; }
+        if (cflags & CONTEXT_FLOATING_POINT) {
+            lprintf("|FLOATING_POINT");
+            cflags &= ~CONTEXT_FLOATING_POINT;
+        }
+        if (cflags & CONTEXT_DEBUG_REGISTERS) {
+            lprintf("|DEBUG_REGISTERS");
+            cflags &= ~CONTEXT_DEBUG_REGISTERS;
+        }
+        lprintf(")\n");
+        if (cflags) { lprintf("|0x%x", cflags); }
+        LPVOID* ptr = (LPVOID*)&pContext->R0;
+        for (unsigned i = 0; i < 16; ++i, ++ptr) {
+            const char eoln = (i & 3) ? ' ' : '\n';
+            const char* legend = nullptr;
+            switch(i) {
+                case 11: legend = "fp"; break;
+                case 13: legend = "sp"; break;
+                case 14: legend = "lr"; break;
+                case 15: legend = "pc"; break;
+            }
+            if(legend) {
+                lprintf("%c%s=%p", eoln, legend, *ptr);
+            } else {
+                lprintf("%cr%d=%p", eoln, i, *ptr);
+            }
+        }
+        lprintf("\n\n");
+    }
 #else
 #error
 #endif
@@ -233,6 +268,12 @@ dumpStack(HANDLE hProcess, HANDLE hThread, const CONTEXT *pContext)
         return;
     }
 
+#elif defined(_M_ARM)
+    MachineType = IMAGE_FILE_MACHINE_ARM;
+    dumpContext(pContext);
+    StackFrame.AddrPC.Offset = pContext->Pc;
+    StackFrame.AddrStack.Offset = pContext->Sp;
+    StackFrame.AddrFrame.Offset = pContext->R11;
 #else
 
     BOOL bWow64 = FALSE;
@@ -276,7 +317,8 @@ dumpStack(HANDLE hProcess, HANDLE hThread, const CONTEXT *pContext)
      */
     CONTEXT Context = *pContext;
 
-    if (MachineType == IMAGE_FILE_MACHINE_I386) {
+    BOOL wordis4bytes = MachineType == IMAGE_FILE_MACHINE_I386 || MachineType == IMAGE_FILE_MACHINE_ARM;
+    if (wordis4bytes) {
         lprintf("AddrPC   Params\n");
     } else {
         lprintf("AddrPC           Params\n");
@@ -299,7 +341,7 @@ dumpStack(HANDLE hProcess, HANDLE hThread, const CONTEXT *pContext)
                          ))
             break;
 
-        if (MachineType == IMAGE_FILE_MACHINE_I386) {
+        if (wordis4bytes) {
             lprintf("%08lX %08lX %08lX %08lX", (DWORD)StackFrame.AddrPC.Offset,
                     (DWORD)StackFrame.Params[0], (DWORD)StackFrame.Params[1],
                     (DWORD)StackFrame.Params[2]);
